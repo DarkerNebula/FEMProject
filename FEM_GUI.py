@@ -2,7 +2,6 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# --- Streamlit page config ---
 st.set_page_config(layout="wide")
 st.title("2D Heterogeneous Plate FEM Structural Analysis")
 
@@ -23,52 +22,176 @@ incl_y_min = st.number_input("Inclusion y min", value=1.5)
 incl_y_max = st.number_input("Inclusion y max", value=2.5)
 
 # --- 3. Material Properties ---
-st.header("3. Material Property Functions")
-E_func_code = st.text_area(
-    "Young's modulus function E_func(x, y):",
-    value=(
-        "if (incl_x_min <= x <= incl_x_max) and (incl_y_min <= y <= incl_y_max):\n"
-        "    return 300e9\n"
-        "else:\n"
-        "    return 150e9*np.sin(np.pi*x/Lx)"
-    ),
-    height=100,
-)
-nu_func_code = st.text_area(
-    "Poisson's ratio function nu_func(x, y):",
-    value=(
-        "if (incl_x_min <= x <= incl_x_max) and (incl_y_min <= y <= incl_y_max):\n"
-        "    return 0.25\n"
-        "else:\n"
-        "    return 0.35"
-    ),
-    height=100,
-)
+st.header("3. Material Properties")
+col1, col2 = st.columns(2)
+with col1:
+    E1_expr = st.text_input(
+        "E₁ (matrix modulus, e.g. 150e9*np.sin(np.pi*x/Lx))",
+        value="150e9*np.sin(np.pi*x/Lx)",
+    )
+    nu1_expr = st.text_input("ν₁ (matrix Poisson's ratio, e.g. 0.35)", value="0.35")
+with col2:
+    E2_expr = st.text_input("E₂ (inclusion modulus, e.g. 300e9)", value="300e9")
+    nu2_expr = st.text_input("ν₂ (inclusion Poisson's ratio, e.g. 0.25)", value="0.25")
 
 # --- 4. Boundary Conditions ---
 st.header("4. Boundary Conditions")
-st.markdown("#### Dirichlet and Point Load BCs (bc_list)")
-dirichlet_code = st.text_area(
-    "List of Dirichlet/Point BC dictionaries (Python list):",
-    value=(
-        "[\n"
-        "    {'line_func': lambda x, y: x-0, 'range': {'y': (0, Ly)}, 'type': 'Dirichlet', 'value': lambda x, y: [0.0, 0.0]},\n"
-        "    {'line_func': lambda x, y: x-Lx, 'range': {'y': (0, Ly)}, 'type': 'Dirichlet', 'value': lambda x, y: [0.0, 0.0]},\n"
-        "]"
-    ),
-    height=100,
-)
 
-st.markdown("#### Traction BCs (traction_list, distributed loads)")
-neumann_code = st.text_area(
-    "List of Traction BC dictionaries (Python list):",
-    value=(
-        "[\n"
-        "    {'line_func': lambda x, y: x-Lx/2, 'range': {'y': (0, Ly)}, 'value': lambda x, y: np.array([0.625e6, 0.0])},\n"
-        "]"
-    ),
-    height=100,
-)
+
+def default_bc_list():
+    return [
+        {
+            "line_func": "lambda x, y: x-0",
+            "type": "Dirichlet",
+            "x_range": "",
+            "y_range": "0, Ly",
+            "value": "lambda x, y: [0.0, 0.0]",
+        },
+        {
+            "line_func": "lambda x, y: x-Lx",
+            "type": "Dirichlet",
+            "x_range": "",
+            "y_range": "0, Ly",
+            "value": "lambda x, y: [0.0, 0.0]",
+        },
+    ]
+
+
+def default_traction_list():
+    return [
+        {
+            "line_func": "lambda x, y: x-Lx/2",
+            "x_range": "",
+            "y_range": "0, Ly",
+            "value": "lambda x, y: np.array([0.625e6, 0.0])",
+        },
+    ]
+
+
+st.subheader("Dirichlet / Point Load Conditions")
+if "bc_conditions" not in st.session_state:
+    st.session_state.bc_conditions = default_bc_list()
+if "bc_count" not in st.session_state:
+    st.session_state.bc_count = len(st.session_state.bc_conditions)
+if "bc_to_delete" not in st.session_state:
+    st.session_state.bc_to_delete = None
+
+
+def add_bc_condition():
+    st.session_state.bc_count += 1
+    st.session_state.bc_conditions.append(
+        {
+            "line_func": "",
+            "type": "Dirichlet",
+            "x_range": "",
+            "y_range": "",
+            "value": "",
+        }
+    )
+
+
+def delete_bc_condition(idx):
+    st.session_state.bc_conditions.pop(idx)
+    st.session_state.bc_count -= 1
+
+
+for i in range(st.session_state.bc_count):
+    exp = st.expander(f"Condition {i+1}", expanded=True)
+    cols = exp.columns([5, 1])
+    with cols[0]:
+        st.session_state.bc_conditions[i]["line_func"] = st.text_input(
+            f"Line function (lambda x, y: ...)",
+            value=st.session_state.bc_conditions[i]["line_func"],
+            key=f"bc_line_func_{i}",
+        )
+        st.session_state.bc_conditions[i]["type"] = st.selectbox(
+            "Type",
+            ["Dirichlet", "Neumann"],
+            index=0 if st.session_state.bc_conditions[i]["type"] == "Dirichlet" else 1,
+            key=f"bc_type_{i}",
+        )
+        st.session_state.bc_conditions[i]["x_range"] = st.text_input(
+            "x range (a, b)",
+            value=st.session_state.bc_conditions[i]["x_range"],
+            key=f"bc_xrange_{i}",
+        )
+        st.session_state.bc_conditions[i]["y_range"] = st.text_input(
+            "y range (a, b)",
+            value=st.session_state.bc_conditions[i]["y_range"],
+            key=f"bc_yrange_{i}",
+        )
+        st.session_state.bc_conditions[i]["value"] = st.text_input(
+            "Value (lambda or [Fx, Fy] or [u, v])",
+            value=st.session_state.bc_conditions[i]["value"],
+            key=f"bc_value_{i}",
+        )
+    with cols[1]:
+        if st.button("❌ Delete", key=f"bc_delete_{i}"):
+            st.session_state.bc_to_delete = i
+
+if st.button("Add Dirichlet/Point Condition"):
+    add_bc_condition()
+
+if st.session_state.bc_to_delete is not None:
+    delete_bc_condition(st.session_state.bc_to_delete)
+    st.session_state.bc_to_delete = None
+
+# --- Traction BCs section ---
+st.subheader("Traction (Distributed Load) Conditions")
+if "traction_conditions" not in st.session_state:
+    st.session_state.traction_conditions = default_traction_list()
+if "traction_count" not in st.session_state:
+    st.session_state.traction_count = len(st.session_state.traction_conditions)
+if "traction_to_delete" not in st.session_state:
+    st.session_state.traction_to_delete = None
+
+
+def add_traction_condition():
+    st.session_state.traction_count += 1
+    st.session_state.traction_conditions.append(
+        {"line_func": "", "x_range": "", "y_range": "", "value": ""}
+    )
+
+
+def delete_traction_condition(idx):
+    st.session_state.traction_conditions.pop(idx)
+    st.session_state.traction_count -= 1
+
+
+for i in range(st.session_state.traction_count):
+    exp = st.expander(f"Traction Condition {i+1}", expanded=True)
+    cols = exp.columns([5, 1])
+    with cols[0]:
+        st.session_state.traction_conditions[i]["line_func"] = st.text_input(
+            f"Line function (lambda x, y: ...)",
+            value=st.session_state.traction_conditions[i]["line_func"],
+            key=f"traction_line_func_{i}",
+        )
+        st.session_state.traction_conditions[i]["x_range"] = st.text_input(
+            "x range (a, b)",
+            value=st.session_state.traction_conditions[i]["x_range"],
+            key=f"traction_xrange_{i}",
+        )
+        st.session_state.traction_conditions[i]["y_range"] = st.text_input(
+            "y range (a, b)",
+            value=st.session_state.traction_conditions[i]["y_range"],
+            key=f"traction_yrange_{i}",
+        )
+        st.session_state.traction_conditions[i]["value"] = st.text_input(
+            "Value (lambda or [qx, qy])",
+            value=st.session_state.traction_conditions[i]["value"],
+            key=f"traction_value_{i}",
+        )
+    with cols[1]:
+        if st.button("❌ Delete", key=f"traction_delete_{i}"):
+            st.session_state.traction_to_delete = i
+
+if st.button("Add Traction Condition"):
+    add_traction_condition()
+
+if st.session_state.traction_to_delete is not None:
+    delete_traction_condition(st.session_state.traction_to_delete)
+    st.session_state.traction_to_delete = None
 
 # --- 5. Deformation scale input ---
 st.header("5. Deformation Scale Factor")
@@ -80,7 +203,7 @@ run = st.button("Run FEM Analysis")
 if run:
     st.header("FEM Solution")
 
-    # --- Compile user material functions ---
+    # --- Material property functions ---
     local_vars = dict(
         Lx=Lx,
         Ly=Ly,
@@ -91,25 +214,85 @@ if run:
         np=np,
         pi=np.pi,
     )
-    exec(
-        f"def E_func(x, y):\n    " + "\n    ".join(E_func_code.splitlines()), local_vars
-    )
-    exec(
-        f"def nu_func(x, y):\n    " + "\n    ".join(nu_func_code.splitlines()),
-        local_vars,
-    )
-    E_func = local_vars["E_func"]
-    nu_func = local_vars["nu_func"]
 
-    # --- Compile BC lists ---
-    try:
-        bc_list = eval(dirichlet_code, local_vars)
-        traction_list = eval(neumann_code, local_vars)
-    except Exception as e:
-        st.error(f"Error in BC definitions: {e}")
-        st.stop()
+    def E_func(x, y):
+        if (incl_x_min <= x <= incl_x_max) and (incl_y_min <= y <= incl_y_max):
+            return eval(E2_expr, {**local_vars, "x": x, "y": y})
+        else:
+            return eval(E1_expr, {**local_vars, "x": x, "y": y})
 
-    # --- FEM Implementation (EXACT LOGIC FROM YOUR NOTEBOOK) ---
+    def nu_func(x, y):
+        if (incl_x_min <= x <= incl_x_max) and (incl_y_min <= y <= incl_y_max):
+            return eval(nu2_expr, {**local_vars, "x": x, "y": y})
+        else:
+            return eval(nu1_expr, {**local_vars, "x": x, "y": y})
+
+    # --- Parse bc_list and traction_list from UI ---
+    def parse_range(rngstr):
+        if not rngstr or rngstr.strip() == "":
+            return None
+        try:
+            parts = [float(eval(s.strip(), local_vars)) for s in rngstr.split(",")]
+            if len(parts) == 2:
+                return tuple(parts)
+        except Exception:
+            pass
+        return None
+
+    bc_list = []
+    for row in st.session_state.bc_conditions:
+        if not row.get("line_func", "").strip():
+            continue
+        bc = {}
+        try:
+            bc["line_func"] = eval(row["line_func"], local_vars)
+        except Exception:
+            st.error(f"Invalid line_func: {row['line_func']}")
+            st.stop()
+        rng = {}
+        xr = parse_range(row.get("x_range", ""))
+        yr = parse_range(row.get("y_range", ""))
+        if xr is not None:
+            rng["x"] = xr
+        if yr is not None:
+            rng["y"] = yr
+        if rng:
+            bc["range"] = rng
+        bc["type"] = row.get("type", "Dirichlet")
+        try:
+            bc["value"] = eval(row["value"], local_vars)
+        except Exception:
+            st.error(f"Invalid value: {row['value']}")
+            st.stop()
+        bc_list.append(bc)
+
+    traction_list = []
+    for row in st.session_state.traction_conditions:
+        if not row.get("line_func", "").strip():
+            continue
+        tr = {}
+        try:
+            tr["line_func"] = eval(row["line_func"], local_vars)
+        except Exception:
+            st.error(f"Invalid line_func: {row['line_func']}")
+            st.stop()
+        rng = {}
+        xr = parse_range(row.get("x_range", ""))
+        yr = parse_range(row.get("y_range", ""))
+        if xr is not None:
+            rng["x"] = xr
+        if yr is not None:
+            rng["y"] = yr
+        if rng:
+            tr["range"] = rng
+        try:
+            tr["value"] = eval(row["value"], local_vars)
+        except Exception:
+            st.error(f"Invalid value: {row['value']}")
+            st.stop()
+        traction_list.append(tr)
+
+    # --- FEM Implementation ---
     tol = 1e-8
 
     # Mesh Generation
@@ -156,7 +339,7 @@ if run:
         st.stop()
     n_nodes = coords.shape[0]
 
-    # --- FEM routines (from your notebook, unchanged) ---
+    # --- FEM routines ---
     def constitutive_matrix(E, nu, analysis_type):
         if analysis_type == "plane_stress":
             coeff = E / (1 - nu**2)
@@ -273,7 +456,7 @@ if run:
             Te[3] += N_edge[1] * qy * dS
         return Te
 
-    # --- Global Assembly (from your notebook) ---
+    # --- Global Assembly  ---
     ndof = 2 * n_nodes
     Kg_global = np.zeros((ndof, ndof))
     Fg_global = np.zeros(ndof)
@@ -337,7 +520,7 @@ if run:
         else:
             raise ValueError("Element type not recognized.")
 
-    # --- Apply Boundary Conditions (from your notebook) ---
+    # --- Apply Boundary Conditions  ---
     prescribed_dofs = {}
     for i in range(n_nodes):
         x, y = coords[i]
@@ -382,7 +565,7 @@ if run:
     # --- Solve System ---
     U = np.linalg.solve(Kg_global, Ng_global)
 
-    # --- Postprocessing: Stresses (EXACT LOGIC FROM YOUR NOTEBOOK) ---
+    # --- Postprocessing: Stresses ---
     nodal_stress = np.zeros((n_nodes, 3))  # columns: [sigma_x, sigma_y, tau_xy]
     count = np.zeros(n_nodes)
 
@@ -478,10 +661,10 @@ if run:
     deformed_coords = coords + scale * np.column_stack([U[0::2], U[1::2]])
     disp_magnitude = np.sqrt(U[0::2] ** 2 + U[1::2] ** 2)
 
-    # --- Plotting: Use your notebook's exact plotting code (contourf, etc.) ---
+    # --- Plotting ---
     st.header("Results")
 
-    # --- Mesh plot with node classification (from your notebook) ---
+    # --- Mesh plot with node classification  ---
     fig = plt.figure(figsize=(Lx, Ly))
     mat_nodes = []
     incl_nodes = []
@@ -602,7 +785,7 @@ if run:
     plt.legend(ncol=4)
     st.pyplot(fig)
 
-    # --- Deformed mesh and stress/disp plots (contourf as in notebook) ---
+    # --- Deformed mesh and stress/disp plots ---
     ny_nodes = ny_elem + 1
     nx_nodes = nx_elem + 1
     try:
@@ -657,7 +840,7 @@ if run:
         plt.tight_layout()
         st.pyplot(fig)
 
-    # Displacement magnitude (scatter, as in notebook)
+    # Displacement magnitude
     fig = plt.figure(figsize=(Lx, Ly))
     plt.scatter(coords[:, 0], coords[:, 1], color="black", label="Original Nodes", s=10)
     sc = plt.scatter(
@@ -677,7 +860,7 @@ if run:
     plt.tight_layout()
     st.pyplot(fig)
 
-    # --- Stress Concentration Factor calculation (from your notebook) ---
+    # --- Stress Concentration Factor calculation  ---
     node_principal = np.zeros(n_nodes)
     node_von = np.zeros(n_nodes)
     for i in range(n_nodes):
